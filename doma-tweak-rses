@@ -1,0 +1,28 @@
+#!/bin/bash
+
+https_rses=( $(rucio list-rses | grep "_H" | paste -sd " " -) )
+root_rses=( $(rucio list-rses | grep "_X" | paste -sd " " -) )
+
+for srcrse in ${https_rses[@]}; do
+    rucio-admin rse set-attribute --rse $srcrse --key fts --value https://fts3-devel.cern.ch:8446
+    rucio-admin rse set-attribute --rse $srcrse --key type --value HTTPS
+    rucio-admin rse set-attribute --rse $srcrse --key verify_checksum --value 0
+    rucio-admin rse set-attribute --rse $srcrse --key lfn2pfn_algorithm --value identity
+    rucio-admin account set-limits root $srcrse -1
+    for dstrse in ${https_rses[@]}; do
+        if [ dstrse = srcrse ]; then continue; fi
+        rucio-admin rse add-distance --distance 1 --ranking 1 $srcrse $dstrse
+    done
+done
+
+for srcrse in ${root_rses[@]}; do
+    rucio-admin rse set-attribute --rse $srcrse --key fts --value https://fts3-devel.cern.ch:8446
+    rucio-admin rse set-attribute --rse $srcrse --key type --value ROOT
+    rucio-admin rse set-attribute --rse $srcrse --key verify_checksum --value 0
+    rucio-admin rse set-attribute --rse $srcrse --key lfn2pfn_algorithm --value identity
+    rucio-admin account set-limits root $srcrse -1
+    for dstrse in ${root_rses[@]}; do
+        if [ dstrse = srcrse ]; then continue; fi
+        rucio-admin rse add-distance --distance 1 --ranking 1 $srcrse $dstrse
+    done
+done

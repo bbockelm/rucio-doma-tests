@@ -1,0 +1,44 @@
+#!/bin/bash
+
+export X509_USER_PROXY=/opt/domatests/x509up
+
+cd /opt/domatests
+
+lifetime=3600
+
+bs=1000000
+count=1000
+
+https_rses=( $(rucio list-rses --expression "type=HTTPS" | paste -sd " " -) )
+
+root_rses=( $(rucio list-rses --expression "type=ROOT" | paste -sd " " -) )
+
+i=1
+for srcrse in ${root_rses[@]}; do
+    filename=file${i}_$(uuidgen)
+    #files_root[$rse]=$filename
+    ((i++))
+
+    dd if=/dev/urandom of=$filename bs=$bs count=$count
+    rucio -v upload --transfer-timeout 30 --rse $srcrse --lifetime $lifetime --scope domatest $filename
+    rm $filename
+    for dstrse in ${root_rses[@]}; do
+        if [ $srcrse = $dstrse ]; then continue; fi
+        rucio add-rule --activity 'Functional Test XrootD' --lifetime $lifetime --source-replica-expression $srcrse domatest:$filename 1 $dstrse
+    done
+done
+
+i=1
+for srcrse in ${https_rses[@]}; do
+    filename=file${i}_$(uuidgen)
+    #files_https[$rse]=$filename
+    ((i++))
+
+    dd if=/dev/urandom of=$filename bs=$bs count=$count
+    rucio -v upload --transfer-timeout 120 --rse $srcrse --lifetime $lifetime --scope domatest $filename
+    rm $filename
+    for dstrse in ${https_rses[@]}; do
+        if [ $srcrse = $dstrse ]; then continue; fi
+        rucio add-rule --activity 'Functional Test WebDAV' --lifetime $lifetime --source-replica-expression $srcrse domatest:$filename 1 $dstrse
+    done
+done
