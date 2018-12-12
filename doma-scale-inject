@@ -1,0 +1,228 @@
+#!/usr/bin/env python
+
+import os
+import sys
+import uuid
+import logging
+import argparse
+import tempfile
+import subprocess
+
+from rucio.client.client import Client
+from rucio.client.uploadclient import UploadClient
+from rucio.common.exception import DataIdentifierNotFound
+
+# A few defaults that should be turned into arguments
+SCOPE = "test"
+RSES = ['UKI-MAN-DPM_H', 'NEBRASKA-XRD_H']
+SOURCE_DATASET_COUNT = 1
+FILE_SIZE_GB = 4
+SOURCE_DATASET_SIZE_GB = 1000
+
+
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger("user")
+logging.getLogger("rucio.client.baseclient").setLevel(logging.INFO)
+logging.getLogger("dogpile").setLevel(logging.INFO)
+logging.getLogger("urllib3").setLevel(logging.INFO)
+
+def extract_scope(did):
+    # Try to extract the scope from the DSN
+    if did.find(':') > -1:
+        if len(did.split(':')) > 2:
+            raise RucioException('Too many colons. Cannot extract scope and name')
+        scope, name = did.split(':')[0], did.split(':')[1]
+        if name.endswith('/'):
+            name = name[:-1]
+        return scope, name
+    else:
+        scope = did.split('.')[0]
+        if did.startswith('user') or did.startswith('group'):
+            scope = ".".join(did.split('.')[0:2])
+        if did.endswith('/'):
+            did = did[:-1]
+        return scope, did
+
+
+def get_client(args):
+    """
+    Returns a new client object.
+    """
+
+    client = Client(user_agent="DOMA Scale Test Client")
+    return client
+
+
+def upload_file(dataset, file_did, filename, rse, client):
+    """
+    Given details of a file, upload it to a RSE and attach
+    it to a dataset.
+    """
+    dsscope, dsname = extract_scope(dataset)
+    fscope, fname = extract_scope(file_did)
+    file_info = {'path': filename,
+                 'rse': rse,
+                 'did_scope': fscope,
+                 'did_name': fname,
+                 'dataset_scope': dsscope,
+                 'dataset_name': dsname,
+                 'no_register': False,
+                 'lifetime': 86400*365*5,
+                 'transfer_timeout': 300}
+
+    print "Starting upload of {}".format(file_did)
+    upload_client = UploadClient(client, logger)
+    print upload_client.upload([file_info], 'rucio_upload.json')
+    print "Upload complete"
+    with open("rucio_upload.json", "r") as fd:
+        print fd.read()
+
+
+def create_file(did, size_gb):
+    print "Creating file {} with dd.".format(did)
+    tmpdir = os.environ.get("TMPDIR", "/var/tmp")
+    fd, name = tempfile.mkstemp(prefix="rucio-upload.", dir=tmpdir)
+    os.close(fd)
+    try:
+        subprocess.check_call(["dd", "if=/dev/urandom", "of={}".format(name),
+                               "bs=1000000", "count={}".format(size_gb*1000)])
+    except:
+        os.unlink(name)
+        raise
+    return name
+
+
+def query_dataset_size(dataset, client):
+    """
+    Get the size of an existing dataset.
+    """
+
+    scope, name = extract_scope(dataset)
+    info = client.get_did(scope=scope, name=name)
+    return info['bytes'] if info['bytes'] else 0
+
+
+def query_replica_sizes(dataset, client):
+    """
+    Get the size of an existing dataset replica.
+    """
+
+    scope, name = extract_scope(dataset)
+    replica_sizes = {}
+    for rep in client.list_dataset_replicas(scope, name, True):
+        replica_sizes[str(rep['rse'])] = rep['available_bytes']
+    return replica_sizes
+
+
+def create_dataset(dataset, client):
+    scope, name = extract_scope(dataset)
+    client.add_dataset(scope=scope, name=name, statuses={'monotonic': True}, lifetime=86400*365*5)
+
+
+def get_args():
+    oparser = argparse.ArgumentParser(prog=os.path.basename(sys.argv[0]), add_help=True)
+    oparser.add_argument("--tpc-only", dest="tpc_only", default=False, action="store_true")
+    args = oparser.parse_args(sys.argv[1:])
+
+    return args
+
+
+def add_rule(did, src_rse, dst_rse, client):
+    scope, name = extract_scope(did)
+    rule_ids = client.add_replication_rule(
+        dids=[{'scope': scope, 'name': name}],
+        copies=1,
+        rse_expression=dst_rse,
+        source_replica_expression=src_rse,
+        activity='Functional Test WebDAV',
+        lifetime=86400)
+    print "Started replication with rule {}".format(rule_ids[0])
+
+
+def find_rule_id(did, rse, client):
+    scope, name = extract_scope(did)
+    rules = client.list_did_rules(scope=scope, name=name)
+    for rule in rules:
+        if rule['rse_expression'] == rse:
+            return rule['id']
+    return None
+
+
+def create_pair_rules(src_rse, dst_rse, client):
+    print "Checking rules for transfers from {} to {}.".format(src_rse, dst_rse)
+    for dataset_num in range(SOURCE_DATASET_COUNT):
+        dataset_name = "{}:{}-stress-{}".format(SCOPE, src_rse, dataset_num)
+        try:
+            data_size = query_dataset_size(dataset_name, client)
+        except DataIdentifierNotFound as dnf:
+            print "Dataset {} is missing; skipping".format(dataset_name)
+        replica_sizes = query_replica_sizes(dataset_name, client)
+        src_size = replica_sizes.get(src_rse, 0)
+        dst_size = replica_sizes.get(dst_rse, 0)
+        if src_size != dst_size:
+            print "Source dataset {} is missing {} bytes at destination {} ({}/{}).".format(dataset_name, src_size - dst_size, dst_rse, dst_size, data_size)
+            rule_id = find_rule_id(dataset_name, dst_rse, client)
+            if rule_id:
+                print "Dataset is actively replicating in rule {}.".format(rule_id)
+            else:
+                print "No rule to replicate this dataset; will create one."
+                add_rule(dataset_name, src_rse, dst_rse, client)
+        else:
+            print "Source dataset {} is complete at destination {}.".format(dataset_name, dst_rse)
+            rule_id = find_rule_id(dataset_name, dst_rse, client)
+            if rule_id:
+                print "Rule {} is no longer needed; deleting and purging replicas.".format(rule_id)
+                client.delete_replication_rule(rule_id=rule_id, purge_replicas=True)
+
+
+def create_rules(client):
+    for src_rse in RSES:
+        for dst_rse in RSES:
+            if src_rse == dst_rse:
+                continue
+            create_pair_rules(src_rse, dst_rse, client)
+
+
+def create_datasets(client):
+    print "Checking source datasets..."
+    dataset_uploads_todo = {}
+    for src_site in RSES:
+        for dataset_num in range(SOURCE_DATASET_COUNT):
+            dataset_name = "{}:{}-stress-{}".format(SCOPE, src_site, dataset_num)
+            try:
+                data_size = query_dataset_size(dataset_name, client)
+            except DataIdentifierNotFound as dnf:
+                print "Dataset {} is missing; creating".format(dataset_name)
+                create_dataset(dataset_name, client)
+                data_size = 0
+            print "Dataset {} size {}".format(dataset_name, data_size)
+            if data_size < (SOURCE_DATASET_SIZE_GB * 1e9):
+                needed_bytes = (SOURCE_DATASET_SIZE_GB * 1e9) - data_size
+                needed_files = int(needed_bytes / (FILE_SIZE_GB * 1e9))
+                needed_files = needed_files if needed_files else 1
+                dataset_uploads_todo[dataset_name] = needed_files
+    for did, count in dataset_uploads_todo.items():
+        print "Need to upload {} files for {}.".format(count, did)
+        scope, name = extract_scope(did)
+        src_site = name.split("-stress-")[0]
+        for i in range(count):
+            file_did = "{}:{}-stress-file-{}GB-{}".format(SCOPE, src_site, FILE_SIZE_GB, uuid.uuid4().get_hex()[:4])
+            print "Will upload {}.".format(file_did)
+            name = create_file(file_did, FILE_SIZE_GB)
+            try:
+                upload_file(did, file_did, name, src_site, client)
+            finally:
+                os.unlink(name)
+
+
+def main():
+    args = get_args()
+    client = get_client(args)
+
+    if not args.tpc_only:
+        create_datasets(client)
+    create_rules(client)
+
+if __name__ == '__main__':
+    main()
+
