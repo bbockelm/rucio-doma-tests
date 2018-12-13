@@ -3,6 +3,7 @@
 import os
 import sys
 import uuid
+import random
 import logging
 import argparse
 import tempfile
@@ -95,6 +96,7 @@ __g_rses = None
 def get_rses(client):
     global __g_rses
     if __g_rses is not None:
+        random.shuffle(__g_rses)
         return __g_rses
     __g_rses = []
     for rse in client.list_rses():
@@ -102,6 +104,7 @@ def get_rses(client):
         attributes = client.list_rse_attributes(rse=rse_name)
         if str(attributes.get('SCALE', False)).lower() == 'true':
             __g_rses.append(rse_name)
+    random.shuffle(__g_rses)
     return __g_rses
 
 
