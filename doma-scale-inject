@@ -26,22 +26,9 @@ logging.getLogger("rucio.client.baseclient").setLevel(logging.INFO)
 logging.getLogger("dogpile").setLevel(logging.INFO)
 logging.getLogger("urllib3").setLevel(logging.INFO)
 
+
 def extract_scope(did):
-    # Try to extract the scope from the DSN
-    if did.find(':') > -1:
-        if len(did.split(':')) > 2:
-            raise RucioException('Too many colons. Cannot extract scope and name')
-        scope, name = did.split(':')[0], did.split(':')[1]
-        if name.endswith('/'):
-            name = name[:-1]
-        return scope, name
-    else:
-        scope = did.split('.')[0]
-        if did.startswith('user') or did.startswith('group'):
-            scope = ".".join(did.split('.')[0:2])
-        if did.endswith('/'):
-            did = did[:-1]
-        return scope, did
+    return did.split(':', 1)
 
 
 def get_client(args):
