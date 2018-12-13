@@ -177,6 +177,8 @@ def create_pair_rules(src_rse, dst_rse, client):
             rule_id = find_rule_id(dataset_name, dst_rse, client)
             if rule_id:
                 print "Dataset is actively replicating in rule {}.".format(rule_id)
+            elif dst_size:
+                print "Dataset is not yet deleted from the destination."
             else:
                 print "No rule to replicate this dataset; will create one."
                 add_rule(dataset_name, src_rse, dst_rse, client)
