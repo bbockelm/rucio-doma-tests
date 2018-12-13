@@ -210,20 +210,20 @@ def create_datasets(client):
                 create_dataset(dataset_name, client)
                 data_size = 0
             print "Dataset {} size {}".format(dataset_name, data_size)
-            if data_size < (SOURCE_DATASET_SIZE_GB * 1e9):
+            while data_size < (SOURCE_DATASET_SIZE_GB * 1e9):
                 needed_bytes = (SOURCE_DATASET_SIZE_GB * 1e9) - data_size
                 needed_files = int(needed_bytes / (FILE_SIZE_GB * 1e9))
                 needed_files = needed_files if needed_files else 1
                 print "Need to upload {} files for {}.".format(needed_files, dataset_name)
                 scope, name = extract_scope(dataset_name)
-                for i in range(needed_files):
-                    file_did = "{}:{}-stress-file-{}GB-{}".format(SCOPE, src_site, FILE_SIZE_GB, uuid.uuid4().get_hex()[:4])
-                    print "Will upload {}.".format(file_did)
-                    name = create_file(file_did, FILE_SIZE_GB)
-                    try:
-                        upload_file(did, file_did, name, src_site, client)
-                    finally:
-                        os.unlink(name)
+                file_did = "{}:{}-stress-file-{}GB-{}".format(SCOPE, src_site, FILE_SIZE_GB, uuid.uuid4().get_hex()[:4])
+                print "Will upload {}.".format(file_did)
+                name = create_file(file_did, FILE_SIZE_GB)
+                try:
+                    upload_file(dataset_name, file_did, name, src_site, client)
+                finally:
+                    os.unlink(name)
+                data_size = query_dataset_size(dataset_name, client)
 
 
 def main():
