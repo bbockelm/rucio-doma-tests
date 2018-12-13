@@ -214,19 +214,16 @@ def create_datasets(client):
                 needed_bytes = (SOURCE_DATASET_SIZE_GB * 1e9) - data_size
                 needed_files = int(needed_bytes / (FILE_SIZE_GB * 1e9))
                 needed_files = needed_files if needed_files else 1
-                dataset_uploads_todo[dataset_name] = needed_files
-    for did, count in dataset_uploads_todo.items():
-        print "Need to upload {} files for {}.".format(count, did)
-        scope, name = extract_scope(did)
-        src_site = name.split("-stress-")[0]
-        for i in range(count):
-            file_did = "{}:{}-stress-file-{}GB-{}".format(SCOPE, src_site, FILE_SIZE_GB, uuid.uuid4().get_hex()[:4])
-            print "Will upload {}.".format(file_did)
-            name = create_file(file_did, FILE_SIZE_GB)
-            try:
-                upload_file(did, file_did, name, src_site, client)
-            finally:
-                os.unlink(name)
+                print "Need to upload {} files for {}.".format(needed_files, dataset_name)
+                scope, name = extract_scope(dataset_name)
+                for i in range(needed_files):
+                    file_did = "{}:{}-stress-file-{}GB-{}".format(SCOPE, src_site, FILE_SIZE_GB, uuid.uuid4().get_hex()[:4])
+                    print "Will upload {}.".format(file_did)
+                    name = create_file(file_did, FILE_SIZE_GB)
+                    try:
+                        upload_file(did, file_did, name, src_site, client)
+                    finally:
+                        os.unlink(name)
 
 
 def main():
