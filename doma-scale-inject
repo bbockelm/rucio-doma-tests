@@ -138,7 +138,7 @@ def add_rule(did, src_rse, dst_rse, client):
         rse_expression=dst_rse,
         source_replica_expression=src_rse,
         activity='Express',
-        lifetime=86400)
+        lifetime=4*3600)  # If the transfer is not done in 4 hours, progress will be deleted and we'll try again.
     print "Started replication with rule {}".format(rule_ids[0])
 
 
