@@ -150,7 +150,7 @@ def add_rule(did, src_rse, dst_rse, client):
         copies=1,
         rse_expression=dst_rse,
         source_replica_expression=src_rse,
-        activity='Functional Test WebDAV',
+        activity='Express',
         lifetime=86400)
     print "Started replication with rule {}".format(rule_ids[0])
 
