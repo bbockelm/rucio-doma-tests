@@ -14,7 +14,6 @@ from rucio.common.exception import DataIdentifierNotFound
 
 # A few defaults that should be turned into arguments
 SCOPE = "test"
-RSES = ['UKI-MAN-DPM_H', 'NEBRASKA-XRD_H']
 SOURCE_DATASET_COUNT = 1
 FILE_SIZE_GB = 4
 SOURCE_DATASET_SIZE_GB = 1000
@@ -90,6 +89,20 @@ def create_file(did, size_gb):
         os.unlink(name)
         raise
     return name
+
+
+__g_rses = None
+def get_rses(client):
+    global __g_rses
+    if __g_rses is not None:
+        return __g_rses
+    __g_rses = []
+    for rse in client.list_rses():
+        rse_name = rse['rse']
+        attributes = client.list_rse_attributes(rse=rse_name)
+        if str(attributes.get('SCALE', False)).lower() == 'true':
+            __g_rses.append(rse_name)
+    return __g_rses
 
 
 def query_dataset_size(dataset, client):
@@ -176,8 +189,8 @@ def create_pair_rules(src_rse, dst_rse, client):
 
 
 def create_rules(client):
-    for src_rse in RSES:
-        for dst_rse in RSES:
+    for src_rse in get_rses(client):
+        for dst_rse in get_rses(client):
             if src_rse == dst_rse:
                 continue
             create_pair_rules(src_rse, dst_rse, client)
@@ -185,8 +198,7 @@ def create_rules(client):
 
 def create_datasets(client):
     print "Checking source datasets..."
-    dataset_uploads_todo = {}
-    for src_site in RSES:
+    for src_site in get_rses(client):
         for dataset_num in range(SOURCE_DATASET_COUNT):
             dataset_name = "{}:{}-stress-{}".format(SCOPE, src_site, dataset_num)
             try:
